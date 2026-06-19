@@ -1,0 +1,3 @@
+title: "AutoRocketFuelPlanner"
+description: "根据目标距离自动计算并设置火箭燃料与氧化剂"
+staticID: "AutoRocketFuelPlanner"
