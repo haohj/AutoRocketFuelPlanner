@@ -75,6 +75,7 @@
     <Compile Include="FuelCalculator.cs" />
     <Compile Include="ReflectionHelpers.cs" />
     <Compile Include="RocketAutoFuelService.cs" />
+    <Compile Include="FuelControlSideScreen.cs" />
     <Compile Include="Patch.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>

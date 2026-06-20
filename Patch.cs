@@ -63,6 +63,8 @@ namespace AutoRocketFuelPlanner
 
             ClustercraftSetDestinationPatch.TryPatch(harmony);
             ClustercraftGetDescriptorsPatch.TryPatch(harmony);
+            DetailsScreenSelectPatch.TryPatch(harmony);
+            DetailsScreenDeselectPatch.TryPatch(harmony);
             Debug.Log("[AutoRocketFuelPlanner] Mod loaded.");
         }
     }
@@ -259,6 +261,163 @@ namespace AutoRocketFuelPlanner
             }
 
             return type.IsValueType ? Activator.CreateInstance(type) : null;
+        }
+    }
+
+    /// <summary>
+    /// DetailsScreen 选中目标时的补丁：
+    /// - 检测是否选中燃料舱/氧化剂舱；
+    /// - 注入自定义 UI 面板到原有 UI 下方。
+    /// </summary>
+    internal static class DetailsScreenSelectPatch
+    {
+        /// <summary>
+        /// 兼容式手动补丁注册。
+        /// </summary>
+        internal static void TryPatch(Harmony harmony)
+        {
+            Type detailsScreenType = typeof(DetailsScreen);
+            string[] candidateNames =
+            {
+                "OnSelectTarget",
+                "SelectTarget",
+                "SetTarget",
+                "ShowDetails"
+            };
+
+            foreach (string methodName in candidateNames)
+            {
+                MethodInfo method = detailsScreenType
+                    .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                    .FirstOrDefault(m => m.Name == methodName && !m.IsStatic);
+
+                if (method != null)
+                {
+                    harmony.Patch(
+                        method,
+                        postfix: new HarmonyMethod(typeof(DetailsScreenSelectPatch), nameof(Postfix))
+                    );
+                    Debug.Log("[AutoRocketFuelPlanner] DetailsScreen select patch target found: " + methodName);
+                    return;
+                }
+            }
+
+            Debug.LogWarning("[AutoRocketFuelPlanner] No select method found on DetailsScreen, UI injection patch skipped.");
+        }
+
+        /// <summary>
+        /// 后置补丁：在目标选中后注入 UI。
+        /// </summary>
+        private static void Postfix(DetailsScreen __instance, GameObject target)
+        {
+            try
+            {
+                if (target != null)
+                {
+                    FuelControlPanelManager.OnTargetSelected(target);
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError("[AutoRocketFuelPlanner] DetailsScreen select patch failed: " + e);
+            }
+        }
+    }
+
+    /// <summary>
+    /// DetailsScreen 取消选中时的补丁：
+    /// - 清理注入的 UI 面板。
+    /// </summary>
+    internal static class DetailsScreenDeselectPatch
+    {
+        /// <summary>
+        /// 兼容式手动补丁注册。
+        /// </summary>
+        internal static void TryPatch(Harmony harmony)
+        {
+            Type detailsScreenType = typeof(DetailsScreen);
+            string[] candidateNames =
+            {
+                "OnDeselectTarget",
+                "DeselectTarget",
+                "ClearTarget",
+                "HideDetails"
+            };
+
+            foreach (string methodName in candidateNames)
+            {
+                MethodInfo method = detailsScreenType
+                    .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                    .FirstOrDefault(m => m.Name == methodName && !m.IsStatic);
+
+                if (method != null)
+                {
+                    harmony.Patch(
+                        method,
+                        postfix: new HarmonyMethod(typeof(DetailsScreenDeselectPatch), nameof(Postfix))
+                    );
+                    Debug.Log("[AutoRocketFuelPlanner] DetailsScreen deselect patch target found: " + methodName);
+                    return;
+                }
+            }
+
+            // 备用方案：补丁 Update 方法来检测取消选中
+            MethodInfo updateMethod = detailsScreenType
+                .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                .FirstOrDefault(m => m.Name == "Update" && !m.IsStatic);
+
+            if (updateMethod != null)
+            {
+                harmony.Patch(
+                    updateMethod,
+                    postfix: new HarmonyMethod(typeof(DetailsScreenDeselectPatch), nameof(UpdatePostfix))
+                );
+                Debug.Log("[AutoRocketFuelPlanner] DetailsScreen Update patch applied for deselection detection");
+                return;
+            }
+
+            Debug.LogWarning("[AutoRocketFuelPlanner] No deselect method found on DetailsScreen, UI cleanup patch skipped.");
+        }
+
+        /// <summary>
+        /// 后置补丁：在目标取消选中后清理 UI。
+        /// </summary>
+        private static void Postfix(DetailsScreen __instance)
+        {
+            try
+            {
+                FuelControlPanelManager.OnTargetDeselected();
+            }
+            catch (Exception e)
+            {
+                Debug.LogError("[AutoRocketFuelPlanner] DetailsScreen deselect patch failed: " + e);
+            }
+        }
+
+        /// <summary>
+        /// Update 后置补丁：检测是否已取消选中。
+        /// </summary>
+        private static void UpdatePostfix(DetailsScreen __instance)
+        {
+            try
+            {
+                // 通过反射检查当前是否有选中的目标
+                FieldInfo selectedTargetField = typeof(DetailsScreen).GetField("selectedTarget",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+
+                if (selectedTargetField != null)
+                {
+                    GameObject selectedTarget = selectedTargetField.GetValue(__instance) as GameObject;
+                    if (selectedTarget == null)
+                    {
+                        FuelControlPanelManager.OnTargetDeselected();
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                // 静默处理 Update 补丁错误，避免日志刷屏
+            }
         }
     }
 }
