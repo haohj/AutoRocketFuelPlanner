@@ -414,9 +414,9 @@ namespace AutoRocketFuelPlanner
                     }
                 }
             }
-            catch (Exception e)
+            catch (Exception)
             {
-                // 静默处理 Update 补丁错误，避免日志刷屏
+                // Silently handle Update patch errors to avoid log spam
             }
         }
     }
