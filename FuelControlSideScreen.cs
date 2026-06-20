@@ -41,41 +41,78 @@ namespace AutoRocketFuelPlanner
         {
             try
             {
+                Debug.Log("[AutoRocketFuelPlanner] TryInject called for target: " + (target != null ? target.name : "null"));
+
                 // Clean up previous injection
                 Cleanup();
 
                 if (target == null)
                 {
+                    Debug.Log("[AutoRocketFuelPlanner] Target is null, skipping");
                     return;
+                }
+
+                // List all components on target for debugging
+                Debug.Log("[AutoRocketFuelPlanner] Components on target:");
+                foreach (Component component in target.GetComponents<Component>())
+                {
+                    if (component != null)
+                    {
+                        Debug.Log("[AutoRocketFuelPlanner]   - " + component.GetType().Name);
+                    }
                 }
 
                 // Check if selected object is fuel/oxidizer tank
                 if (!IsFuelOrOxidizerTank(target))
                 {
+                    Debug.Log("[AutoRocketFuelPlanner] Target is not a fuel/oxidizer tank, skipping");
                     return;
                 }
 
-                // Get rocket object
+                Debug.Log("[AutoRocketFuelPlanner] Target is fuel/oxidizer tank, proceeding with injection");
+
+                // 获取火箭对象（Clustercraft）
+                // 注意：燃料舱/氧化剂舱可能不在 Clustercraft 的子对象中
+                // 所以我们尝试多种方式查找
                 Clustercraft craft = target.GetComponentInParent<Clustercraft>();
+
                 if (craft == null)
                 {
-                    Debug.LogWarning("[AutoRocketFuelPlanner] Could not find Clustercraft for target: " + target.name);
-                    return;
+                    Debug.Log("[AutoRocketFuelPlanner] 在父对象中找不到 Clustercraft，尝试从场景中查找火箭...");
+                    // 尝试从场景中查找任何 Clustercraft
+                    Clustercraft[] allCrafts = UnityEngine.Object.FindObjectsByType<Clustercraft>(FindObjectsSortMode.None);
+                    if (allCrafts.Length > 0)
+                    {
+                        craft = allCrafts[0]; // 使用找到的第一个火箭
+                        Debug.Log("[AutoRocketFuelPlanner] 从场景中找到火箭: " + craft.name);
+                    }
+                    else
+                    {
+                        Debug.Log("[AutoRocketFuelPlanner] 场景中没有找到火箭，将使用基本模式（无自动计算）");
+                        // 不 return，继续执行，但 UI 将以只读模式显示
+                    }
+                }
+                else
+                {
+                    Debug.Log("[AutoRocketFuelPlanner] 在父对象中找到 Clustercraft: " + craft.name);
                 }
 
                 // Get current active SideScreen
                 DetailsScreen detailsScreen = target.GetComponentInParent<DetailsScreen>();
                 if (detailsScreen == null)
                 {
+                    Debug.Log("[AutoRocketFuelPlanner] DetailsScreen not found in parent, searching in scene");
                     // Try to find from scene
                     detailsScreen = UnityEngine.Object.FindFirstObjectByType<DetailsScreen>();
                 }
 
                 if (detailsScreen == null)
                 {
-                    Debug.LogWarning("[AutoRocketFuelPlanner] Could not find DetailsScreen");
+                    Debug.LogWarning("[AutoRocketFuelPlanner] Could not find DetailsScreen anywhere");
                     return;
                 }
+
+                Debug.Log("[AutoRocketFuelPlanner] Found DetailsScreen: " + detailsScreen.name);
 
                 // Get current active SideScreenContent
                 SideScreenContent activeScreen = GetActiveSideScreen(detailsScreen);
@@ -85,22 +122,70 @@ namespace AutoRocketFuelPlanner
                     return;
                 }
 
-                // Create custom panel at the bottom of current SideScreen content
-                injectedPanel = new GameObject("AutoFuelControlPanel");
-                injectedPanel.transform.SetParent(activeScreen.transform, false);
+                Debug.Log("[AutoRocketFuelPlanner] Found active SideScreen: " + activeScreen.name);
 
-                // Set position at the bottom
+                // ========== 新的布局策略 ==========
+                // 找到 DetailsScreen 的根容器，在其底部添加新面板
+                // 这样不会破坏原有 UI 的结构
+
+                // 获取 DetailsScreen 的根 RectTransform
+                RectTransform detailsScreenRect = detailsScreen.GetComponent<RectTransform>();
+                if (detailsScreenRect == null)
+                {
+                    Debug.LogError("[AutoRocketFuelPlanner] DetailsScreen 没有 RectTransform 组件");
+                    return;
+                }
+
+                Debug.Log("[AutoRocketFuelPlanner] DetailsScreen 大小: " + detailsScreenRect.sizeDelta);
+                Debug.Log("[AutoRocketFuelPlanner] DetailsScreen 位置: " + detailsScreenRect.anchoredPosition);
+
+                // 创建新面板，放在 DetailsScreen 的底部
+                // 注意：不设置为 SideScreen 的子对象，而是设置为 DetailsScreen 的子对象
+                injectedPanel = new GameObject("AutoFuelControlPanel");
+                injectedPanel.transform.SetParent(detailsScreenRect, false); // 设置为 DetailsScreen 的子对象
+
+                Debug.Log("[AutoRocketFuelPlanner] Created panel under DetailsScreen");
+
+                // 设置新面板的位置和大小
                 RectTransform rectTransform = injectedPanel.AddComponent<RectTransform>();
-                rectTransform.anchorMin = new Vector2(0, 0);
-                rectTransform.anchorMax = new Vector2(1, 0);
-                rectTransform.pivot = new Vector2(0.5f, 0);
-                rectTransform.sizeDelta = new Vector2(0, 180); // Height
+
+                // 锚点设置：固定在底部，宽度填充
+                rectTransform.anchorMin = new Vector2(0, 0); // 底部
+                rectTransform.anchorMax = new Vector2(1, 0); // 底部
+                rectTransform.pivot = new Vector2(0.5f, 0); // 底部中心
+
+                // 位置：在 DetailsScreen 的底部
+                rectTransform.anchoredPosition = new Vector2(0, 0);
+
+                // 大小：宽度自适应，高度固定
+                float panelHeight = 180;
+                rectTransform.sizeDelta = new Vector2(0, panelHeight);
+
+                // 添加深色背景，使其更明显且与原有 UI 区分开
+                Image bgImage = injectedPanel.AddComponent<Image>();
+                bgImage.color = new Color(0.12f, 0.12f, 0.14f, 1f); // 深色背景
+
+                // 添加顶部边框线
+                GameObject borderLine = new GameObject("TopBorder");
+                borderLine.transform.SetParent(injectedPanel.transform, false);
+                Image borderImage = borderLine.AddComponent<Image>();
+                borderImage.color = new Color(0.3f, 0.3f, 0.35f, 1f); // 灰色边框
+                RectTransform borderRect = borderLine.GetComponent<RectTransform>();
+                borderRect.anchorMin = new Vector2(0, 1); // 顶部
+                borderRect.anchorMax = new Vector2(1, 1); // 顶部
+                borderRect.pivot = new Vector2(0.5f, 1); // 顶部中心
+                borderRect.anchoredPosition = Vector2.zero;
+                borderRect.sizeDelta = new Vector2(0, 2); // 2像素高的边框线
 
                 // Create control panel
                 controlPanel = injectedPanel.AddComponent<FuelControlPanel>();
                 controlPanel.Initialize(craft, target);
 
                 Debug.Log("[AutoRocketFuelPlanner] Fuel control panel injected successfully");
+                Debug.Log("[AutoRocketFuelPlanner] Panel active: " + injectedPanel.activeInHierarchy);
+                Debug.Log("[AutoRocketFuelPlanner] Panel position: " + rectTransform.anchoredPosition);
+                Debug.Log("[AutoRocketFuelPanelris] Panel size: " + rectTransform.sizeDelta);
+                Debug.Log("[AutoRocketFuelPlanner] Panel parent: " + detailsScreenRect.name);
             }
             catch (Exception e)
             {
@@ -127,6 +212,8 @@ namespace AutoRocketFuelPlanner
         /// </summary>
         private static bool IsFuelOrOxidizerTank(GameObject target)
         {
+            Debug.Log("[AutoRocketFuelPlanner] Checking if target is fuel/oxidizer tank: " + target.name);
+
             foreach (Component component in target.GetComponents<Component>())
             {
                 if (component == null)
@@ -135,12 +222,16 @@ namespace AutoRocketFuelPlanner
                 }
 
                 string typeName = component.GetType().Name.ToLowerInvariant();
+                Debug.Log("[AutoRocketFuelPlanner]   Checking component: " + component.GetType().Name + " (lowercase: " + typeName + ")");
+
                 if (typeName.Contains("tank") && (typeName.Contains("fuel") || typeName.Contains("oxidizer")))
                 {
+                    Debug.Log("[AutoRocketFuelPlanner]   ✓ Found fuel/oxidizer tank component: " + component.GetType().Name);
                     return true;
                 }
             }
 
+            Debug.Log("[AutoRocketFuelPlanner]   ✗ No fuel/oxidizer tank component found");
             return false;
         }
 
@@ -149,24 +240,46 @@ namespace AutoRocketFuelPlanner
         /// </summary>
         private static SideScreenContent GetActiveSideScreen(DetailsScreen detailsScreen)
         {
+            Debug.Log("[AutoRocketFuelPlanner] Looking for active SideScreen in DetailsScreen");
+
             // Try to get activeSideScreen field via reflection
             FieldInfo field = typeof(DetailsScreen).GetField("activeSideScreen",
                 BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
             if (field != null)
             {
-                return field.GetValue(detailsScreen) as SideScreenContent;
+                Debug.Log("[AutoRocketFuelPlanner] Found activeSideScreen field");
+                SideScreenContent screen = field.GetValue(detailsScreen) as SideScreenContent;
+                if (screen != null)
+                {
+                    Debug.Log("[AutoRocketFuelPlanner] Active SideScreen: " + screen.name);
+                    return screen;
+                }
+                else
+                {
+                    Debug.Log("[AutoRocketFuelPlanner] activeSideScreen field is null");
+                }
+            }
+            else
+            {
+                Debug.Log("[AutoRocketFuelPlanner] activeSideScreen field not found, trying alternative");
             }
 
             // Alternative: find SideScreenContent in DetailsScreen's children
-            foreach (SideScreenContent screen in detailsScreen.GetComponentsInChildren<SideScreenContent>(true))
+            SideScreenContent[] screens = detailsScreen.GetComponentsInChildren<SideScreenContent>(true);
+            Debug.Log("[AutoRocketFuelPlanner] Found " + screens.Length + " SideScreenContent components in children");
+
+            foreach (SideScreenContent screen in screens)
             {
+                Debug.Log("[AutoRocketFuelPlanner]   Checking: " + screen.name + " (active: " + screen.gameObject.activeInHierarchy + ")");
                 if (screen.gameObject.activeInHierarchy)
                 {
+                    Debug.Log("[AutoRocketFuelPlanner] ✓ Found active SideScreen: " + screen.name);
                     return screen;
                 }
             }
 
+            Debug.Log("[AutoRocketFuelPlanner] ✗ No active SideScreen found");
             return null;
         }
     }
@@ -204,95 +317,143 @@ namespace AutoRocketFuelPlanner
         private static readonly string[] OxidizerKeywords = { "oxidizer", "oxylite", "ox" };
 
         /// <summary>
-        /// Initialize panel.
+        /// <summary>
+        /// 初始化面板
         /// </summary>
+        /// <param name="craft">火箭对象，可以为 null（基本模式）</param>
+        /// <param name="target">选中的燃料舱/氧化剂舱游戏对象</param>
         public void Initialize(Clustercraft craft, GameObject target)
         {
+            // 保存引用
             currentCraft = craft;
             currentTarget = target;
+
+            // 记录初始化信息
+            Debug.Log("[AutoRocketFuelPlanner] FuelControlPanel 初始化:");
+            Debug.Log("[AutoRocketFuelPlanner]   - Craft: " + (craft != null ? craft.name : "null（基本模式）"));
+            Debug.Log("[AutoRocketFuelPlanner]   - Target: " + target.name);
+
+            // 如果没有火箭，显示提示
+            if (craft == null)
+            {
+                Debug.Log("[AutoRocketFuelPlanner]   - 模式: 基本模式（只显示滑动条，无自动计算）");
+            }
+            else
+            {
+                Debug.Log("[AutoRocketFuelPlanner]   - 模式: 完整模式（自动计算启用）");
+            }
+
+            // 构建 UI 元素
             BuildUI();
+
+            // 从游戏读取初始数据并更新 UI
             RefreshFromGame();
+
+            Debug.Log("[AutoRocketFuelPlanner] FuelControlPanel 初始化完成");
         }
 
         /// <summary>
-        /// Build UI elements.
+        /// 构建 UI 元素
+        /// 注意：这个方法创建所有的滑动条、标签和布局
         /// </summary>
         private void BuildUI()
         {
-            // Create main panel container
+            // 创建主面板容器
+            // 这个容器将包含所有的 UI 元素
             GameObject panel = new GameObject("AutoFuelMainPanel");
             panel.transform.SetParent(transform, false);
 
-            // Add vertical layout
+            // 添加垂直布局组件
+            // 这会让所有子元素垂直排列，自动处理间距
             VerticalLayoutGroup layout = panel.AddComponent<VerticalLayoutGroup>();
-            layout.spacing = 6f;
-            layout.padding = new RectOffset(8, 8, 8, 8);
-            layout.childForceExpandWidth = true;
-            layout.childForceExpandHeight = false;
+            layout.spacing = 2f; // 元素之间的间距（紧凑）
+            layout.padding = new RectOffset(8, 8, 6, 6); // 内边距
+            layout.childForceExpandWidth = true; // 子元素宽度扩展到最大
+            layout.childForceExpandHeight = false; // 子元素高度不扩展
 
-            // Add content size fitter
+            // 添加内容大小适配器
+            // 这会让面板根据内容自动调整大小
             ContentSizeFitter fitter = panel.AddComponent<ContentSizeFitter>();
             fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
+            // 设置面板的 RectTransform
             RectTransform panelRect = panel.GetComponent<RectTransform>();
-            panelRect.anchorMin = Vector2.zero;
-            panelRect.anchorMax = Vector2.one;
-            panelRect.sizeDelta = Vector2.zero;
+            panelRect.anchorMin = Vector2.zero; // 底部
+            panelRect.anchorMax = Vector2.one; // 顶部
+            panelRect.sizeDelta = Vector2.zero; // 大小自动
 
-            // Status label
-            statusLabel = CreateLabel(panel.transform, "Auto-Fuel Control", true);
-            statusLabel.color = new Color(0.8f, 0.9f, 1f, 1f); // Light blue title
+            // ========== 创建 UI 元素 ==========
 
-            // Add separator
-            CreateSeparator(panel.transform);
+            // 标题标签
+            statusLabel = CreateLabel(panel.transform, "自动加注控制", true);
+            statusLabel.color = new Color(0.8f, 0.9f, 1f, 1f); // 浅蓝色标题
+            statusLabel.fontSize = 12; // 字体大小
 
-            // Target distance slider
-            distanceLabel = CreateLabel(panel.transform, "Target Distance: -- units");
+            // 目标距离滑动条
+            distanceLabel = CreateLabel(panel.transform, "目标距离: -- 格", false);
             distanceSlider = CreateSlider(panel.transform, 0f, 100000f, OnDistanceSliderChanged);
 
-            // Fuel target slider
-            fuelLabel = CreateLabel(panel.transform, "Fuel Target: -- kg");
+            // 燃料目标滑动条
+            fuelLabel = CreateLabel(panel.transform, "燃料目标: -- kg", false);
             fuelSlider = CreateSlider(panel.transform, 0f, 1000f, OnFuelSliderChanged);
 
-            // Oxidizer target slider
-            oxidizerLabel = CreateLabel(panel.transform, "Oxidizer Target: -- kg");
+            // 氧化剂目标滑动条
+            oxidizerLabel = CreateLabel(panel.transform, "氧化剂目标: -- kg", false);
             oxidizerSlider = CreateSlider(panel.transform, 0f, 1000f, OnOxidizerSliderChanged);
 
-            // Add description label
-            CreateLabel(panel.transform, "Drag sliders to adjust, other values auto-calculate", false)
-                .color = new Color(0.6f, 0.6f, 0.6f, 1f); // Gray description text
+            Debug.Log("[AutoRocketFuelPlanner] BuildUI 完成，创建了所有 UI 元素");
         }
 
         /// <summary>
-        /// Create label.
+        /// 创建标签
         /// </summary>
+        /// <param name="parent">父对象</param>
+        /// <param name="text">标签文本</param>
+        /// <param name="isTitle">是否是标题（影响样式）</param>
+        /// <returns>创建的 Text 组件</returns>
         private Text CreateLabel(Transform parent, string text, bool isTitle = false)
         {
+            // 创建新的 GameObject 作为标签
             GameObject go = new GameObject("Label");
             go.transform.SetParent(parent, false);
 
+            // 添加 Text 组件
             Text textComponent = go.AddComponent<Text>();
             textComponent.text = text;
+
+            // 根据是否是标题设置不同的对齐方式
             textComponent.alignment = isTitle ? TextAnchor.MiddleCenter : TextAnchor.MiddleLeft;
 
-            // Set font size
+            // 设置字体大小
             textComponent.fontSize = isTitle ? 14 : 11;
 
-            // Try to set font (Unity default or ONI font)
+            // 尝试设置字体
+            // ONI 可能有自己的字体，我们先尝试 Unity 默认字体
             Font font = Resources.GetBuiltinResource<Font>("Arial.ttf");
             if (font != null)
             {
                 textComponent.font = font;
             }
 
+            // 设置文本颜色（白色，因为背景是深色）
+            if (isTitle)
+            {
+                textComponent.color = Color.white; // 标题白色
+            }
+            else
+            {
+                textComponent.color = new Color(0.8f, 0.8f, 0.8f, 1f); // 普通文本浅灰色
+            }
+
+            // 设置标签的高度
             RectTransform rectTransform = go.GetComponent<RectTransform>();
-            rectTransform.sizeDelta = new Vector2(0, isTitle ? 28 : 20);
+            rectTransform.sizeDelta = new Vector2(0, isTitle ? 24 : 18);
 
             return textComponent;
         }
 
         /// <summary>
-        /// Create separator.
+        /// 创建分隔线
         /// </summary>
         private void CreateSeparator(Transform parent)
         {
@@ -311,46 +472,54 @@ namespace AutoRocketFuelPlanner
         }
 
         /// <summary>
-        /// Create slider.
+        /// 创建滑动条
         /// </summary>
+        /// <param name="parent">父对象</param>
+        /// <param name="min">最小值</param>
+        /// <param name="max">最大值</param>
+        /// <param name="onChanged">值变化时的回调函数</param>
+        /// <returns>创建的 Slider 组件</returns>
         private Slider CreateSlider(Transform parent, float min, float max,
             UnityEngine.Events.UnityAction<float> onChanged)
         {
+            // 创建滑动条的主 GameObject
             GameObject go = new GameObject("Slider");
             go.transform.SetParent(parent, false);
 
-            // Add layout element
+            // 添加布局元素，设置滑动条的高度
             LayoutElement layoutElement = go.AddComponent<LayoutElement>();
-            layoutElement.preferredHeight = 30;
+            layoutElement.preferredHeight = 20; // 滑动条高度（更紧凑）
 
-            // Create background
+            // ========== 创建滑动条的背景 ==========
             GameObject bgGo = new GameObject("Background");
             bgGo.transform.SetParent(go.transform, false);
             Image bgImage = bgGo.AddComponent<Image>();
-            bgImage.color = new Color(0.15f, 0.15f, 0.15f, 1f);
+            bgImage.color = new Color(0.2f, 0.2f, 0.2f, 1f); // 深灰色背景
             RectTransform bgRect = bgGo.GetComponent<RectTransform>();
-            bgRect.anchorMin = new Vector2(0, 0.25f);
-            bgRect.anchorMax = new Vector2(1, 0.75f);
+            // 设置背景的位置和大小（垂直居中，左右填充）
+            bgRect.anchorMin = new Vector2(0, 0.3f);
+            bgRect.anchorMax = new Vector2(1, 0.7f);
             bgRect.sizeDelta = Vector2.zero;
 
-            // Create fill area
+            // ========== 创建填充区域（显示当前值） ==========
             GameObject fillAreaGo = new GameObject("Fill Area");
             fillAreaGo.transform.SetParent(go.transform, false);
             RectTransform fillAreaRect = fillAreaGo.AddComponent<RectTransform>();
-            fillAreaRect.anchorMin = new Vector2(0, 0.25f);
-            fillAreaRect.anchorMax = new Vector2(1, 0.75f);
+            fillAreaRect.anchorMin = new Vector2(0, 0.3f);
+            fillAreaRect.anchorMax = new Vector2(1, 0.7f);
             fillAreaRect.sizeDelta = Vector2.zero;
 
+            // 创建填充条（显示选择的值）
             GameObject fillGo = new GameObject("Fill");
             fillGo.transform.SetParent(fillAreaGo.transform, false);
             Image fillImage = fillGo.AddComponent<Image>();
-            fillImage.color = new Color(0.3f, 0.6f, 1f, 1f); // Blue fill
+            fillImage.color = new Color(0.2f, 0.6f, 1f, 1f); // 蓝色填充
             RectTransform fillRect = fillGo.GetComponent<RectTransform>();
             fillRect.anchorMin = Vector2.zero;
             fillRect.anchorMax = Vector2.one;
             fillRect.sizeDelta = Vector2.zero;
 
-            // Create slider handle
+            // ========== 创建滑块手柄 ==========
             GameObject handleAreaGo = new GameObject("Handle Slide Area");
             handleAreaGo.transform.SetParent(go.transform, false);
             RectTransform handleAreaRect = handleAreaGo.AddComponent<RectTransform>();
@@ -358,14 +527,15 @@ namespace AutoRocketFuelPlanner
             handleAreaRect.anchorMax = Vector2.one;
             handleAreaRect.sizeDelta = Vector2.zero;
 
+            // 创建手柄
             GameObject handleGo = new GameObject("Handle");
             handleGo.transform.SetParent(handleAreaGo.transform, false);
             Image handleImage = handleGo.AddComponent<Image>();
-            handleImage.color = new Color(0.9f, 0.9f, 0.9f, 1f);
+            handleImage.color = new Color(0.8f, 0.8f, 0.8f, 1f); // 浅灰色手柄
             RectTransform handleRect = handleGo.GetComponent<RectTransform>();
-            handleRect.sizeDelta = new Vector2(20, 0);
+            handleRect.sizeDelta = new Vector2(15, 0); // 手柄宽度
 
-            // Add slider component
+            // ========== 添加 Slider 组件并配置 ==========
             Slider slider = go.AddComponent<Slider>();
             slider.fillRect = fillRect;
             slider.handleRect = handleRect;
@@ -374,23 +544,27 @@ namespace AutoRocketFuelPlanner
             slider.maxValue = max;
             slider.onValueChanged.AddListener(onChanged);
 
+            // 设置滑动条的整体大小
             RectTransform goRect = go.GetComponent<RectTransform>();
-            goRect.sizeDelta = new Vector2(0, 30);
+            goRect.sizeDelta = new Vector2(0, 20); // 滑动条高度
 
             return slider;
         }
 
         /// <summary>
-        /// Per-frame update: read latest data from game and refresh UI.
+        /// <summary>
+        /// 每帧更新：从游戏读取最新数据并刷新 UI
+        /// 注意：只有在有火箭对象时才会自动刷新
         /// </summary>
         private void Update()
         {
+            // 如果没有火箭对象或者是从滑动条触发的更新，跳过
             if (currentCraft == null || isUpdatingFromSlider)
             {
                 return;
             }
 
-            // Refresh every 0.5 seconds (avoid performance issues from per-frame refresh)
+            // 每 0.5 秒刷新一次（避免每帧刷新造成性能问题）
             if (Time.frameCount % 30 == 0)
             {
                 RefreshFromGame();
@@ -398,12 +572,20 @@ namespace AutoRocketFuelPlanner
         }
 
         /// <summary>
-        /// Read data from game objects and update UI display.
+        /// 从游戏对象读取数据并更新 UI 显示
         /// </summary>
         public void RefreshFromGame()
         {
+            // 如果没有火箭对象，显示基本状态并返回
             if (currentCraft == null)
             {
+                Debug.Log("[AutoRocketFuelPlanner] RefreshFromGame: 没有火箭对象，跳过数据读取");
+                // 仍然更新状态标签，提示用户
+                if (statusLabel != null)
+                {
+                    statusLabel.text = "自动加注控制 (基本模式 - 无火箭)";
+                    statusLabel.color = new Color(0.7f, 0.7f, 0.7f, 1f); // 灰色
+                }
                 return;
             }
 
@@ -446,26 +628,26 @@ namespace AutoRocketFuelPlanner
                 }
 
                 // Update label display
-                distanceLabel.text = $"Target Distance: {(hasDistance ? currentDistance.ToString("F0") : "--")} units";
-                fuelLabel.text = $"Fuel Target: {(hasFuel ? currentFuel.ToString("F1") : "--")} / {maxFuel:F0} kg";
-                oxidizerLabel.text = $"Oxidizer Target: {(hasOxidizer ? currentOxidizer.ToString("F1") : "--")} / {maxOxidizer:F0} kg";
+                distanceLabel.text = $"目标距离: {(hasDistance ? currentDistance.ToString("F0") : "--")} 格";
+                fuelLabel.text = $"燃料目标: {(hasFuel ? currentFuel.ToString("F1") : "--")} / {maxFuel:F0} kg";
+                oxidizerLabel.text = $"氧化剂目标: {(hasOxidizer ? currentOxidizer.ToString("F1") : "--")} / {maxOxidizer:F0} kg";
 
                 // Update status
                 if (hasFuel || hasOxidizer)
                 {
-                    statusLabel.text = "Auto-Fuel Control (Active)";
+                    statusLabel.text = "自动加注控制 (活跃)";
                     statusLabel.color = new Color(0.3f, 0.9f, 0.3f, 1f); // Green
                 }
                 else
                 {
-                    statusLabel.text = "Auto-Fuel Control (Waiting for data)";
+                    statusLabel.text = "自动加注控制 (等待数据)";
                     statusLabel.color = new Color(0.8f, 0.8f, 0.3f, 1f); // Yellow
                 }
             }
             catch (Exception e)
             {
                 Debug.LogError("[AutoRocketFuelPlanner] Failed to refresh UI from game: " + e);
-                statusLabel.text = "Auto-Fuel Control (Error)";
+                statusLabel.text = "自动加注控制 (错误)";
                 statusLabel.color = new Color(0.9f, 0.3f, 0.3f, 1f); // Red
             }
 
@@ -495,7 +677,7 @@ namespace AutoRocketFuelPlanner
 
             try
             {
-                distanceLabel.text = $"Target Distance: {value:F0} units";
+                distanceLabel.text = $"目标距离: {value:F0} 格";
 
                 // Detect engine type
                 RocketEngineKind engineKind = DetectEngineKind(currentCraft);
@@ -512,17 +694,17 @@ namespace AutoRocketFuelPlanner
                 if (fuelApplied)
                 {
                     fuelSlider.SetValueWithoutNotify(appliedFuel);
-                    fuelLabel.text = $"Fuel Target: {appliedFuel:F1} kg";
+                    fuelLabel.text = $"燃料目标: {appliedFuel:F1} kg";
                 }
 
                 if (oxidizerApplied)
                 {
                     oxidizerSlider.SetValueWithoutNotify(appliedOxidizer);
-                    oxidizerLabel.text = $"Oxidizer Target: {appliedOxidizer:F1} kg";
+                    oxidizerLabel.text = $"氧化剂目标: {appliedOxidizer:F1} kg";
                 }
 
                 // Update status
-                statusLabel.text = "Auto-Fuel Control (Distance Mode)";
+                statusLabel.text = "自动加注控制 (距离模式)";
                 statusLabel.color = new Color(0.3f, 0.9f, 0.3f, 1f);
 
                 Debug.Log($"[AutoRocketFuelPlanner] Distance changed to {value:F0}, applied fuel: {appliedFuel:F1}, oxidizer: {appliedOxidizer:F1}");
@@ -530,7 +712,7 @@ namespace AutoRocketFuelPlanner
             catch (Exception e)
             {
                 Debug.LogError("[AutoRocketFuelPlanner] Failed to process distance change: " + e);
-                statusLabel.text = "Auto-Fuel Control (Calculation Error)";
+                statusLabel.text = "自动加注控制 (计算错误)";
                 statusLabel.color = new Color(0.9f, 0.3f, 0.3f, 1f);
             }
 
@@ -560,7 +742,7 @@ namespace AutoRocketFuelPlanner
 
             try
             {
-                fuelLabel.text = $"Fuel Target: {value:F1} kg";
+                fuelLabel.text = $"燃料目标: {value:F1} kg";
 
                 // Detect engine type
                 RocketEngineKind engineKind = DetectEngineKind(currentCraft);
@@ -571,7 +753,7 @@ namespace AutoRocketFuelPlanner
 
                 // Update distance display
                 distanceSlider.SetValueWithoutNotify(plan.TargetDistance);
-                distanceLabel.text = $"Target Distance: {plan.TargetDistance:F0} units";
+                distanceLabel.text = $"目标距离: {plan.TargetDistance:F0} 格";
 
                 // Write oxidizer
                 if (profile.RequiresOxidizer)
@@ -580,12 +762,12 @@ namespace AutoRocketFuelPlanner
                     if (oxidizerApplied)
                     {
                         oxidizerSlider.SetValueWithoutNotify(appliedOxidizer);
-                        oxidizerLabel.text = $"Oxidizer Target: {appliedOxidizer:F1} kg";
+                        oxidizerLabel.text = $"氧化剂目标: {appliedOxidizer:F1} kg";
                     }
                 }
 
                 // Update status
-                statusLabel.text = "Auto-Fuel Control (Fuel Mode)";
+                statusLabel.text = "自动加注控制 (燃料模式)";
                 statusLabel.color = new Color(0.3f, 0.6f, 1f, 1f); // Blue
 
                 Debug.Log($"[AutoRocketFuelPlanner] Fuel changed to {value:F1}, distance: {plan.TargetDistance:F0}, oxidizer: {plan.OxidizerKg:F1}");
@@ -593,7 +775,7 @@ namespace AutoRocketFuelPlanner
             catch (Exception e)
             {
                 Debug.LogError("[AutoRocketFuelPlanner] Failed to process fuel change: " + e);
-                statusLabel.text = "Auto-Fuel Control (Calculation Error)";
+                statusLabel.text = "自动加注控制 (计算错误)";
                 statusLabel.color = new Color(0.9f, 0.3f, 0.3f, 1f);
             }
 
@@ -623,7 +805,7 @@ namespace AutoRocketFuelPlanner
 
             try
             {
-                oxidizerLabel.text = $"Oxidizer Target: {value:F1} kg";
+                oxidizerLabel.text = $"氧化剂目标: {value:F1} kg";
 
                 // Detect engine type
                 RocketEngineKind engineKind = DetectEngineKind(currentCraft);
@@ -634,18 +816,18 @@ namespace AutoRocketFuelPlanner
 
                 // Update distance display
                 distanceSlider.SetValueWithoutNotify(plan.TargetDistance);
-                distanceLabel.text = $"Target Distance: {plan.TargetDistance:F0} units";
+                distanceLabel.text = $"目标距离: {plan.TargetDistance:F0} 格";
 
                 // Write fuel
                 bool fuelApplied = TryApplyMassToTank(currentCraft, plan.FuelKg, FuelKeywords, out float appliedFuel);
                 if (fuelApplied)
                 {
                     fuelSlider.SetValueWithoutNotify(appliedFuel);
-                    fuelLabel.text = $"Fuel Target: {appliedFuel:F1} kg";
+                    fuelLabel.text = $"燃料目标: {appliedFuel:F1} kg";
                 }
 
                 // Update status
-                statusLabel.text = "Auto-Fuel Control (Oxidizer Mode)";
+                statusLabel.text = "自动加注控制 (氧化剂模式)";
                 statusLabel.color = new Color(0.9f, 0.6f, 0.3f, 1f); // Orange
 
                 Debug.Log($"[AutoRocketFuelPlanner] Oxidizer changed to {value:F1}, distance: {plan.TargetDistance:F0}, fuel: {plan.FuelKg:F1}");
@@ -653,7 +835,7 @@ namespace AutoRocketFuelPlanner
             catch (Exception e)
             {
                 Debug.LogError("[AutoRocketFuelPlanner] Failed to process oxidizer change: " + e);
-                statusLabel.text = "Auto-Fuel Control (Calculation Error)";
+                statusLabel.text = "自动加注控制 (计算错误)";
                 statusLabel.color = new Color(0.9f, 0.3f, 0.3f, 1f);
             }
 

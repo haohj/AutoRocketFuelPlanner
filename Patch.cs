@@ -105,12 +105,34 @@ namespace AutoRocketFuelPlanner
         internal static void TryPatch(Harmony harmony)
         {
             Type craftType = typeof(Clustercraft);
+
+            // 列出所有可能相关的方法，帮助调试
+            Debug.Log("[AutoRocketFuelPlanner] Scanning Clustercraft methods:");
+            MethodInfo[] allMethods = craftType.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            foreach (MethodInfo m in allMethods)
+            {
+                string nameLower = m.Name.ToLowerInvariant();
+                if (nameLower.Contains("destination") || nameLower.Contains("target") ||
+                    nameLower.Contains("travel") || nameLower.Contains("set") ||
+                    nameLower.Contains("route") || nameLower.Contains("path"))
+                {
+                    Debug.Log("[AutoRocketFuelPlanner]   - " + m.Name + " (Params: " + m.GetParameters().Length + ")");
+                }
+            }
+
             string[] candidateNames =
             {
+                "OnClusterDestinationChanged",  // 根据日志，这是正确的方法！
                 "SetDestination",
                 "SetTargetDestination",
                 "SetTravelDestination",
-                "SetRocketDestination"
+                "SetRocketDestination",
+                "SetRoute",
+                "SetPath",
+                "SetTarget",
+                "UpdateDestination",
+                "ChangeDestination",
+                "SelectDestination"
             };
 
             foreach (string methodName in candidateNames)
@@ -154,11 +176,31 @@ namespace AutoRocketFuelPlanner
         internal static void TryPatch(Harmony harmony)
         {
             Type craftType = typeof(Clustercraft);
+
+            // 列出可能相关的描述方法
+            Debug.Log("[AutoRocketFuelPlanner] Scanning Clustercraft descriptor methods:");
+            MethodInfo[] allMethods = craftType.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            foreach (MethodInfo m in allMethods)
+            {
+                string nameLower = m.Name.ToLowerInvariant();
+                if (nameLower.Contains("descriptor") || nameLower.Contains("description") ||
+                    nameLower.Contains("tooltip") || nameLower.Contains("info") ||
+                    nameLower.Contains("text") || nameLower.Contains("label"))
+                {
+                    Debug.Log("[AutoRocketFuelPlanner]   - " + m.Name + " (Returns: " + m.ReturnType.Name + ", Params: " + m.GetParameters().Length + ")");
+                }
+            }
+
             string[] candidateNames =
             {
                 "GetDescriptors",
                 "GetDescription",
-                "GetTooltipDescriptors"
+                "GetTooltipDescriptors",
+                "GetTooltip",
+                "GetInfo",
+                "GetDetails",
+                "GetStatus",
+                "GetStatusString"
             };
 
             foreach (string methodName in candidateNames)
@@ -277,12 +319,35 @@ namespace AutoRocketFuelPlanner
         internal static void TryPatch(Harmony harmony)
         {
             Type detailsScreenType = typeof(DetailsScreen);
+
+            // 列出所有 DetailsScreen 的方法，帮助调试
+            Debug.Log("[AutoRocketFuelPlanner] Scanning DetailsScreen methods:");
+            MethodInfo[] allMethods = detailsScreenType.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            foreach (MethodInfo m in allMethods)
+            {
+                // 只记录可能相关的方法
+                string nameLower = m.Name.ToLowerInvariant();
+                if (nameLower.Contains("select") || nameLower.Contains("target") ||
+                    nameLower.Contains("detail") || nameLower.Contains("show") ||
+                    nameLower.Contains("set") || nameLower.Contains("open"))
+                {
+                    Debug.Log("[AutoRocketFuelPlanner]   - " + m.Name + " (Params: " + m.GetParameters().Length + ")");
+                }
+            }
+
             string[] candidateNames =
             {
+                "OnSelectObject",  // 根据日志，这是正确的方法！
                 "OnSelectTarget",
                 "SelectTarget",
                 "SetTarget",
-                "ShowDetails"
+                "ShowDetails",
+                "ShowTarget",
+                "SelectObject",
+                "SetSelectedTarget",
+                "OnTargetSelected",
+                "DisplayDetails",
+                "OpenDetails"
             };
 
             foreach (string methodName in candidateNames)
@@ -302,24 +367,123 @@ namespace AutoRocketFuelPlanner
                 }
             }
 
+            // 如果候选名都没找到，尝试通过参数类型匹配
+            Debug.Log("[AutoRocketFuelPlanner] Trying parameter-based matching...");
+            foreach (MethodInfo method in allMethods)
+            {
+                ParameterInfo[] parameters = method.GetParameters();
+                // 查找接受 GameObject 参数的方法
+                if (parameters.Length == 1 && parameters[0].ParameterType == typeof(GameObject))
+                {
+                    Debug.Log("[AutoRocketFuelPlanner] Found method with GameObject param: " + method.Name);
+                    // 检查方法名是否可能与选择相关
+                    string nameLower = method.Name.ToLowerInvariant();
+                    if (!nameLower.Contains("get") && !nameLower.Contains("find") && !nameLower.Contains("create"))
+                    {
+                        try
+                        {
+                            harmony.Patch(
+                                method,
+                                postfix: new HarmonyMethod(typeof(DetailsScreenSelectPatch), nameof(Postfix))
+                            );
+                            Debug.Log("[AutoRocketFuelPlanner] DetailsScreen select patch applied to: " + method.Name);
+                            return;
+                        }
+                        catch (Exception e)
+                        {
+                            Debug.LogWarning("[AutoRocketFuelPlanner] Failed to patch " + method.Name + ": " + e.Message);
+                        }
+                    }
+                }
+            }
+
             Debug.LogWarning("[AutoRocketFuelPlanner] No select method found on DetailsScreen, UI injection patch skipped.");
         }
 
         /// <summary>
         /// 后置补丁：在目标选中后注入 UI。
+        /// 这个方法会在游戏选中某个对象后被自动调用
+        ///
+        /// 重要说明：
+        /// - OnSelectObject 的参数是 System.Object data（不是 GameObject）
+        /// - data 可能是多种类型：GameObject、Component、KSelectable 等
+        /// - 我们需要将其转换为 GameObject 才能操作游戏对象
         /// </summary>
-        private static void Postfix(DetailsScreen __instance, GameObject target)
+        private static void Postfix(DetailsScreen __instance, object data)
         {
             try
             {
+                // 第一步：记录 Postfix 被调用（用于调试）
+                // 这会告诉我们补丁是否正确应用并触发
+                Debug.Log("[AutoRocketFuelPlanner] >>> Postfix 被调用了! data=" +
+                    (data != null
+                        ? data.GetType().Name + " (" + data.ToString().Substring(0, Math.Min(50, data.ToString().Length)) + ")"
+                        : "null（空值）"));
+
+                // 第二步：检查 data 是否为空
+                if (data == null)
+                {
+                    Debug.Log("[AutoRocketFuelPlanner] data 是 null（空值），跳过处理");
+                    return;
+                }
+
+                // 第三步：尝试将 data 转换为 GameObject
+                // 这是期望的最简单情况
+                GameObject target = data as GameObject;
+                Debug.Log("[AutoRocketFuelPlanner] 转换为 GameObject 后: target=" +
+                    (target != null ? target.name : "null（转换失败）"));
+
+                // 第四步：如果转换失败，尝试其他类型
+                if (target == null)
+                {
+                    Debug.Log("[AutoRocketFuelPlanner] data 不是 GameObject，检查是否是 Component（组件）...");
+
+                    // 尝试将 data 转换为 Component（组件）
+                    // Component 是 GameObject 上的组件（如 Transform、Renderer 等）
+                    if (data is Component component)
+                    {
+                        // 如果是 Component，获取其所属的 GameObject
+                        target = component.gameObject;
+                        Debug.Log("[AutoRocketFuelPlanner] data 是 Component（组件），获取到 GameObject: " + target.name);
+                    }
+                    else
+                    {
+                        // 如果都不是，记录类型信息用于调试
+                        Debug.Log("[AutoRocketFuelPlanner] Data 既不是 GameObject 也不是 Component: " + data.GetType().FullName);
+
+                        // 记录类型的继承层次，帮助理解这个对象是什么
+                        Type dataType = data.GetType();
+                        Debug.Log("[AutoRocketFuelPlanner] Data 类型层次结构:");
+                        Debug.Log("[AutoRocketFuelPlanner]   -> " + dataType.FullName);
+
+                        // 遍历继承链，查看所有父类型
+                        while (dataType.BaseType != null)
+                        {
+                            dataType = dataType.BaseType;
+                            Debug.Log("[AutoRocketFuelPlanner]   -> " + dataType.FullName);
+                        }
+
+                        // 未知类型，无法处理，返回
+                        return;
+                    }
+                }
+
+                // 第五步：如果成功获取到 GameObject，调用 UI 注入
                 if (target != null)
                 {
+                    Debug.Log("[AutoRocketFuelPlanner] 成功获取 GameObject: " + target.name);
+                    Debug.Log("[AutoRocketFuelPlanner] 调用 FuelControlPanelManager.OnTargetSelected()...");
+
+                    // 调用 UI 管理器来注入自定义 UI
                     FuelControlPanelManager.OnTargetSelected(target);
+
+                    Debug.Log("[AutoRocketFuelPlanner] OnTargetSelected() 调用完成");
                 }
             }
             catch (Exception e)
             {
-                Debug.LogError("[AutoRocketFuelPlanner] DetailsScreen select patch failed: " + e);
+                Debug.LogError("[AutoRocketFuelPlanner] DetailsScreen select patch 失败: " + e);
+                Debug.LogError("[AutoRocketFuelPlanner] 错误堆栈: " + e.StackTrace);
             }
         }
     }
@@ -336,12 +500,18 @@ namespace AutoRocketFuelPlanner
         internal static void TryPatch(Harmony harmony)
         {
             Type detailsScreenType = typeof(DetailsScreen);
+
             string[] candidateNames =
             {
+                "DeselectAndClose",  // 根据日志，这个方法存在
                 "OnDeselectTarget",
                 "DeselectTarget",
                 "ClearTarget",
-                "HideDetails"
+                "HideDetails",
+                "ClearSelection",
+                "Deselect",
+                "CloseDetails",
+                "HidePanel"
             };
 
             foreach (string methodName in candidateNames)
