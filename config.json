@@ -1,6 +1,8 @@
 {
   "EnableAutoApply": true,
   "UsePerEngineOptimalProfiles": true,
+  "EnableRealtimeSync": true,
+  "AutoDisableRealtimeSyncOnErrors": true,
   "DistancePerKgFuel": 40.0,
   "SteamDistanceFactor": 0.9,
   "PetroleumDistanceFactor": 1.0,

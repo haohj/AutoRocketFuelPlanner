@@ -3,11 +3,35 @@ using PeterHan.PLib.Options;
 
 namespace AutoRocketFuelPlanner
 {
+    /*
+     * ========================= 阅读顺序导图 =========================
+     * 这个文件参数很多，建议按分组读，不要从上到下硬啃：
+     * 1) 主开关：
+     *    EnableAutoApply / UsePerEngineOptimalProfiles / EnableRealtimeSync / AutoDisableRealtimeSyncOnErrors
+     * 2) 手动模式参数：
+     *    DistancePerKgFuel + 各引擎 DistanceFactor + OxidizerPerKgFuel + Margin
+     * 3) 全局修正：
+     *    GlobalFuelAdjustmentPercent / AdditionalSafetyMarginPercent / MaxAutoFillPercent
+     * 4) 自动最优下的自定义档案：
+     *    EnableCustomEngineProfiles + 各引擎 DistancePerKgFuel / Margin / OxidizerRatio
+     * 5) 最后看构造函数默认值（理解“开箱行为”）。
+     *
+     * 对照阅读建议：
+     * - 和 FuelCalculator.ResolveProfile() 一起看，最容易理解每个参数在哪生效。
+     * ==============================================================
+     */
+    /// <summary>
+    /// Mod 全局配置：
+    /// - 通过 PLib 展示到游戏设置界面；
+    /// - 通过 Json 序列化到配置文件；
+    /// - 供 FuelCalculator / RuntimeSync 在运行时读取。
+    /// </summary>
     [JsonObject(MemberSerialization.OptIn)]
     [ConfigFile]
     [RestartRequired]
     public sealed class Config : SingletonOptions<Config>
     {
+        // ===== 主开关 =====
         [Option("启用自动加注", "当火箭目标发生变化时，自动计算并应用燃料/氧化剂目标量", "自动火箭加注")]
         [JsonProperty]
         public bool EnableAutoApply { get; set; }
@@ -16,6 +40,15 @@ namespace AutoRocketFuelPlanner
         [JsonProperty]
         public bool UsePerEngineOptimalProfiles { get; set; }
 
+        [Option("启用实时联动同步", "玩家手动调整距离/燃料/氧化剂时，自动反算其余参数", "自动火箭加注")]
+        [JsonProperty]
+        public bool EnableRealtimeSync { get; set; }
+
+        [Option("实时联动自动安全降级", "实时联动连续异常后自动降级为仅目标变化时计算", "自动火箭加注")]
+        [JsonProperty]
+        public bool AutoDisableRealtimeSyncOnErrors { get; set; }
+
+        // ===== 手动模式参数（当 UsePerEngineOptimalProfiles = false 时生效） =====
         [Option("每千克燃料可飞行距离", "用于估算飞行距离与燃料关系（按你的引擎/玩法微调）", "自动火箭加注", Format = "F2")]
         [Limit(1f, 500f)]
         [JsonProperty]
@@ -46,6 +79,7 @@ namespace AutoRocketFuelPlanner
         [JsonProperty]
         public float RadboltDistanceFactor { get; set; }
 
+        // ===== 通用质量参数 =====
         [Option("氧化剂/燃料质量比", "每 1kg 燃料对应需要的氧化剂质量", "自动火箭加注", Format = "F2")]
         [Limit(0f, 20f)]
         [JsonProperty]
@@ -71,6 +105,7 @@ namespace AutoRocketFuelPlanner
         [JsonProperty]
         public float FallbackTargetDistance { get; set; }
 
+        // ===== 全局修正参数（会叠加到自动/手动两种模式） =====
         [Option("全局燃料量微调(%)", "在最终结果上统一增减（正数=多加，负数=少加）", "自动火箭加注", Format = "F0")]
         [Limit(-50f, 100f)]
         [JsonProperty]
@@ -81,10 +116,12 @@ namespace AutoRocketFuelPlanner
         [JsonProperty]
         public float AdditionalSafetyMarginPercent { get; set; }
 
+        // ===== 自动最优模式下的“用户自定义引擎档案”开关 =====
         [Option("启用引擎参数自定义档案", "开启后，自动最优模式将优先使用你为每种引擎设置的参数", "自动火箭加注")]
         [JsonProperty]
         public bool EnableCustomEngineProfiles { get; set; }
 
+        // ===== 蒸汽引擎自定义档案 =====
         [Option("蒸汽-每千克燃料距离", "蒸汽引擎专用距离参数", "自动火箭加注", Format = "F2")]
         [Limit(1f, 500f)]
         [JsonProperty]
@@ -95,6 +132,7 @@ namespace AutoRocketFuelPlanner
         [JsonProperty]
         public float SteamFuelMarginPercent { get; set; }
 
+        // ===== 石油引擎自定义档案 =====
         [Option("石油-每千克燃料距离", "石油引擎专用距离参数", "自动火箭加注", Format = "F2")]
         [Limit(1f, 500f)]
         [JsonProperty]
@@ -115,6 +153,7 @@ namespace AutoRocketFuelPlanner
         [JsonProperty]
         public float PetroleumOxidizerMarginPercent { get; set; }
 
+        // ===== 液氢引擎自定义档案 =====
         [Option("液氢-每千克燃料距离", "液氢引擎专用距离参数", "自动火箭加注", Format = "F2")]
         [Limit(1f, 800f)]
         [JsonProperty]
@@ -135,6 +174,7 @@ namespace AutoRocketFuelPlanner
         [JsonProperty]
         public float HydrogenOxidizerMarginPercent { get; set; }
 
+        // ===== 糖引擎自定义档案 =====
         [Option("糖-每千克燃料距离", "糖引擎专用距离参数", "自动火箭加注", Format = "F2")]
         [Limit(1f, 500f)]
         [JsonProperty]
@@ -145,6 +185,7 @@ namespace AutoRocketFuelPlanner
         [JsonProperty]
         public float SugarFuelMarginPercent { get; set; }
 
+        // ===== 辐射引擎自定义档案 =====
         [Option("辐射-每千克燃料距离", "辐射引擎专用距离参数", "自动火箭加注", Format = "F2")]
         [Limit(1f, 1000f)]
         [JsonProperty]
@@ -155,10 +196,18 @@ namespace AutoRocketFuelPlanner
         [JsonProperty]
         public float RadboltFuelMarginPercent { get; set; }
 
+        /// <summary>
+        /// 默认值即“开箱即用推荐配置”：
+        /// - 默认开启自动最优；
+        /// - 默认开启实时联动与安全降级；
+        /// - 自定义引擎档案默认关闭（避免新手被大量参数淹没）。
+        /// </summary>
         public Config()
         {
             EnableAutoApply = true;
             UsePerEngineOptimalProfiles = true;
+            EnableRealtimeSync = true;
+            AutoDisableRealtimeSyncOnErrors = true;
             DistancePerKgFuel = 40f;
             SteamDistanceFactor = 0.9f;
             PetroleumDistanceFactor = 1f;

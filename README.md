@@ -9,6 +9,8 @@
 - 当玩家手动修改“距离/燃料/氧化剂”中的任意一个值时，自动反算其余参数并回填。
 - 默认开启“按火箭类型自动最优计算”，每种引擎自动套用独立参数档案。
 - 支持“每种引擎独立可编辑参数档案”，可单独微调某一种火箭而不影响其他类型。
+- 实时联动通过火箭组件轮询实现（兼容版），避免高风险 Harmony 高频补丁导致启动崩溃。
+- 实时联动异常会自动安全降级为“仅目标变化时计算”。
 - 自动将计算结果写入火箭油箱/氧化剂罐的可写入目标字段。
 - 在火箭详情信息中显示自动加注结果（引擎、目标距离、燃料、氧化剂）。
 - 无法读取目标距离时，使用 `FallbackTargetDistance` 兜底。
@@ -28,6 +30,8 @@
 
 - `EnableAutoApply`: 是否启用自动应用
 - `UsePerEngineOptimalProfiles`: 是否使用按引擎自动最优档案
+- `EnableRealtimeSync`: 启用实时联动同步
+- `AutoDisableRealtimeSyncOnErrors`: 实时联动异常时自动降级
 - `DistancePerKgFuel`: 每千克燃料对应可飞行距离
 - `SteamDistanceFactor`: 蒸汽引擎距离系数
 - `PetroleumDistanceFactor`: 石油引擎距离系数
@@ -50,11 +54,10 @@
 
 ## 触发时机
 
-- `Clustercraft.OnSpawn`
+- `Clustercraft.OnSpawn`（挂载实时联动组件）
 - `Clustercraft.SetDestination`
-- `Clustercraft.Sim200ms`（用于侦测玩家手动改值并实时联动）
 
-当火箭生成、切换目标或玩家手动调整参数时，自动重新计算并设置其余参数。
+当火箭生成、切换目标或玩家手动调整参数时，自动重新计算并设置参数。
 
 ## 详情面板显示
 

@@ -68,6 +68,7 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="AutoFuelRuntimeSync.cs" />
     <Compile Include="Config.cs" />
     <Compile Include="FuelPlan.cs" />
     <Compile Include="FuelCalculator.cs" />
