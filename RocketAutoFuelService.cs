@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
-using PeterHan.PLib.Options;
 
 namespace AutoRocketFuelPlanner
 {
@@ -101,7 +100,7 @@ namespace AutoRocketFuelPlanner
         {
             realtimeSyncErrorCount++;
             Debug.LogError("[AutoRocketFuelPlanner] 实时联动异常: " + e);
-            if (!SingletonOptions<Config>.Instance.AutoDisableRealtimeSyncOnErrors)
+            if (!ConfigAccess.Get().AutoDisableRealtimeSyncOnErrors)
             {
                 return;
             }
@@ -213,7 +212,7 @@ namespace AutoRocketFuelPlanner
         /// </summary>
         private static void SyncByDetectedInput(Clustercraft craft, bool forceDistanceMode)
         {
-            if (craft == null || !SingletonOptions<Config>.Instance.EnableAutoApply)
+            if (craft == null || !ConfigAccess.Get().EnableAutoApply)
             {
                 return;
             }
@@ -231,7 +230,7 @@ namespace AutoRocketFuelPlanner
             if (!hasDistance)
             {
                 // 距离读不到时仍给出可执行方案，避免整个流程失效。
-                currentDistance = SingletonOptions<Config>.Instance.FallbackTargetDistance;
+                currentDistance = ConfigAccess.Get().FallbackTargetDistance;
                 hasDistance = true;
                 usedFallbackDistance = true;
             }
@@ -464,7 +463,7 @@ namespace AutoRocketFuelPlanner
         private static float ClampByStorage(GameObject tankObject, float massKg)
         {
             float result = Mathf.Max(0f, massKg);
-            float maxPercent = Mathf.Clamp(SingletonOptions<Config>.Instance.MaxAutoFillPercent, 1f, 100f) / 100f;
+            float maxPercent = Mathf.Clamp(ConfigAccess.Get().MaxAutoFillPercent, 1f, 100f) / 100f;
             Storage storage = tankObject.GetComponent<Storage>();
             if (storage != null && storage.capacityKg > 0f)
             {

@@ -1,4 +1,3 @@
-using PeterHan.PLib.Options;
 using UnityEngine;
 
 namespace AutoRocketFuelPlanner
@@ -51,7 +50,7 @@ namespace AutoRocketFuelPlanner
                 return;
             }
 
-            Config cfg = SingletonOptions<Config>.Instance;
+            Config cfg = ConfigAccess.Get();
             if (!cfg.EnableRealtimeSync || !RocketAutoFuelService.IsRealtimeSyncAllowed())
             {
                 return;

@@ -1,5 +1,4 @@
 using UnityEngine;
-using PeterHan.PLib.Options;
 
 namespace AutoRocketFuelPlanner
 {
@@ -32,7 +31,7 @@ namespace AutoRocketFuelPlanner
         /// 2) 用户自定义引擎档案；
         /// 3) 手动模式下由全局参数推导出来的档案。
         /// </summary>
-        internal readonly struct EngineProfile
+        internal struct EngineProfile
         {
             /// <summary>
             /// 1kg 燃料可支持的飞行距离（核心斜率）。
@@ -89,7 +88,7 @@ namespace AutoRocketFuelPlanner
         /// </summary>
         public static FuelPlan CreatePlanFromDistance(float targetDistance, RocketEngineKind engineKind, EngineProfile profile)
         {
-            Config cfg = SingletonOptions<Config>.Instance;
+            Config cfg = ConfigAccess.Get();
             // 防止负距离污染后续计算。
             float safeDistance = Mathf.Max(0f, targetDistance);
 
@@ -153,7 +152,7 @@ namespace AutoRocketFuelPlanner
         /// </summary>
         public static EngineProfile ResolveProfile(RocketEngineKind engineKind)
         {
-            Config cfg = SingletonOptions<Config>.Instance;
+            Config cfg = ConfigAccess.Get();
             return cfg.UsePerEngineOptimalProfiles
                 ? GetOptimalProfile(engineKind, cfg)
                 : GetManualProfile(engineKind, cfg);
@@ -239,7 +238,7 @@ namespace AutoRocketFuelPlanner
         /// </summary>
         private static float FuelToDistance(float fuelKg, EngineProfile profile)
         {
-            Config cfg = SingletonOptions<Config>.Instance;
+            Config cfg = ConfigAccess.Get();
             float global = Mathf.Max(0f, 1f + cfg.GlobalFuelAdjustmentPercent / 100f);
             float fuelMargin = Mathf.Max(0f, profile.FuelMarginPercent + cfg.AdditionalSafetyMarginPercent);
             // 防止分母接近 0。
@@ -253,7 +252,7 @@ namespace AutoRocketFuelPlanner
         /// </summary>
         private static float FuelToOxidizer(float fuelKg, EngineProfile profile)
         {
-            Config cfg = SingletonOptions<Config>.Instance;
+            Config cfg = ConfigAccess.Get();
             float fuelMargin = Mathf.Max(0f, profile.FuelMarginPercent + cfg.AdditionalSafetyMarginPercent);
             float oxidizerMargin = Mathf.Max(0f, profile.OxidizerMarginPercent + cfg.AdditionalSafetyMarginPercent);
             // 比率按“氧化剂冗余 / 燃料冗余”的相对关系修正。
@@ -267,7 +266,7 @@ namespace AutoRocketFuelPlanner
         /// </summary>
         private static float OxidizerToFuel(float oxidizerKg, EngineProfile profile)
         {
-            Config cfg = SingletonOptions<Config>.Instance;
+            Config cfg = ConfigAccess.Get();
             float fuelMargin = Mathf.Max(0f, profile.FuelMarginPercent + cfg.AdditionalSafetyMarginPercent);
             float oxidizerMargin = Mathf.Max(0f, profile.OxidizerMarginPercent + cfg.AdditionalSafetyMarginPercent);
             float ratio = Mathf.Max(0f, profile.OxidizerPerKgFuel) * (1f + oxidizerMargin / 100f) / Mathf.Max(0.0001f, (1f + fuelMargin / 100f));

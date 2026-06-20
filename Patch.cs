@@ -42,14 +42,25 @@ namespace AutoRocketFuelPlanner
             try
             {
                 base.OnLoad(harmony);
-                PUtil.InitLibrary(true);
-                new POptions().RegisterOptions(this, typeof(Config));
-                Debug.Log("[AutoRocketFuelPlanner] Mod loaded.");
             }
             catch (Exception e)
             {
-                Debug.LogError("[AutoRocketFuelPlanner] OnLoad failed: " + e);
+                Debug.LogError("[AutoRocketFuelPlanner] Base OnLoad failed: " + e);
+                return;
             }
+
+            try
+            {
+                PUtil.InitLibrary(true);
+                new POptions().RegisterOptions(this, typeof(Config));
+            }
+            catch (Exception e)
+            {
+                // PLib 初始化失败时仍允许核心逻辑运行，只是配置菜单不可用。
+                Debug.LogWarning("[AutoRocketFuelPlanner] PLib init/register failed, running with fallback config. " + e);
+            }
+
+            Debug.Log("[AutoRocketFuelPlanner] Mod loaded.");
         }
     }
 
@@ -79,9 +90,39 @@ namespace AutoRocketFuelPlanner
     /// 目的地变化后触发一次重算。
     /// 这是最稳定、最低风险的业务触发点之一。
     /// </summary>
-    [HarmonyPatch(typeof(Clustercraft), "SetDestination")]
+    [HarmonyPatch]
     internal static class ClustercraftSetDestinationPatch
     {
+        /// <summary>
+        /// 兼容不同 ONI 版本的方法名变化：
+        /// - 优先按常见命名查找；
+        /// - 找不到时返回 null，让 Harmony 跳过该补丁而不是让 OnLoad 失败。
+        /// </summary>
+        private static MethodBase TargetMethod()
+        {
+            Type craftType = typeof(Clustercraft);
+            string[] candidateNames =
+            {
+                "SetDestination",
+                "SetTargetDestination",
+                "SetTravelDestination",
+                "SetRocketDestination"
+            };
+
+            foreach (string methodName in candidateNames)
+            {
+                MethodInfo method = AccessTools.DeclaredMethod(craftType, methodName);
+                if (method != null)
+                {
+                    Debug.Log("[AutoRocketFuelPlanner] Destination patch target found: " + methodName);
+                    return method;
+                }
+            }
+
+            Debug.LogWarning("[AutoRocketFuelPlanner] No destination method found on Clustercraft, destination sync patch skipped.");
+            return null;
+        }
+
         private static void Postfix(Clustercraft __instance)
         {
             try
@@ -99,9 +140,33 @@ namespace AutoRocketFuelPlanner
     /// 把自动加注状态拼到火箭详情描述里。
     /// 这里通过反射构造 Descriptor，以适配不同构造签名。
     /// </summary>
-    [HarmonyPatch(typeof(Clustercraft), "GetDescriptors")]
+    [HarmonyPatch]
     internal static class ClustercraftGetDescriptorsPatch
     {
+        private static MethodBase TargetMethod()
+        {
+            Type craftType = typeof(Clustercraft);
+            string[] candidateNames =
+            {
+                "GetDescriptors",
+                "GetDescription",
+                "GetTooltipDescriptors"
+            };
+
+            foreach (string methodName in candidateNames)
+            {
+                MethodInfo method = AccessTools.DeclaredMethod(craftType, methodName);
+                if (method != null)
+                {
+                    Debug.Log("[AutoRocketFuelPlanner] Descriptor patch target found: " + methodName);
+                    return method;
+                }
+            }
+
+            Debug.LogWarning("[AutoRocketFuelPlanner] No descriptor method found on Clustercraft, UI detail patch skipped.");
+            return null;
+        }
+
         private static void Postfix(Clustercraft __instance, object __result)
         {
             try

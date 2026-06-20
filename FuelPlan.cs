@@ -28,7 +28,7 @@ namespace AutoRocketFuelPlanner
         Oxidizer
     }
 
-    internal readonly struct FuelPlan
+    internal struct FuelPlan
     {
         // 本次计划覆盖的目标距离（格）。
         public readonly float TargetDistance;
@@ -48,7 +48,7 @@ namespace AutoRocketFuelPlanner
         }
     }
 
-    internal readonly struct AutoFuelSnapshot
+    internal struct AutoFuelSnapshot
     {
         // 本轮完整计划（包含目标距离与补给值）。
         public readonly FuelPlan Plan;
